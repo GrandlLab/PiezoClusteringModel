@@ -1,0 +1,124 @@
+// this code was inspired by “Simulating a Thomas cluster point process”  in R from Paul Keeler; 
+// https://hpaulkeeler.com/simulating-a-thomas-cluster-point-process/
+// https://github.com/hpaulkeeler/posts/tree/master/ThomasClusterRectangle
+
+
+#pragma TextEncoding = "UTF-8"
+#pragma rtGlobals=3		// Use modern global access method and strict wave access.
+
+
+function optimizeclustering(lambdaparent,lambdadaughter,sigma,numb_samplepoints,datainput) //this function creates simulated points via a Thomas point process, calculates histogramss for simulated and real data, and calculates the sum of squares for the difference between the two.
+
+variable lambdaParent //parent points
+variable lambdaDaughter //daughter points
+variable sigma  //sigma
+variable numb_samplepoints/ /number of sample centers- each is the center of a "patch" with a given radius.
+string datainput  //this is the raw data wave. Current amplitudes in A, one value per cell
+
+
+variable xmin=0,xmax=50,ymin=0,ymax=50 //setting up the boundaries of the big box in microns. The full box will be twice the width (here, -50 to +50). 
+variable xdelta=xmax-xmin, ydelta=ymax-ymin //calculating the length of the box sides
+variable areatotal = xdelta*ydelta //calculatingthe area of the box, for setting up density of points
+
+
+variable rExt=7*sigma //This accounts for edge effects by extending the original box slightly, based on value of sigma, so all points end up in box.
+variable xMinExt=xMin-rExt, xMaxExt=xMax+rExt, yMinExt=yMin-rExt, yMaxExt=yMax+rExt //acutal values for extended box
+
+variable xDeltaExt=xMaxExt-xMinExt, yDeltaExt=yMaxExt-yMinExt //extended box sides 
+variable areaTotalExt=xDeltaExt*yDeltaExt //extended box area
+
+
+
+
+variable numbPointsParent = (areaTotalExt*lambdaparent) //calculates number of parent points- based on density and area.
+
+
+Make/O/N=(numbPointsParent) xxparent=enoise(xdeltaext) //assigns x coordinates to parent points from a uniform distribution
+Make/O/N=(numbPointsParent) yyparent=enoise(ydeltaext) //assigns y coordinates to parent points from a uniform distribution
+Make/O/N=(numbPointsParent)  numbPointsDaughter = poissonnoise(lambdaDaughter) //assigns a # of daughter points to each parent point, poisson distributed. Note that to get a truly random distribution, simply set numbpointsdaughter=1
+variable  numbPoints=sum(numbPointsDaughter) //calculates total number of daughter points (Sum of each assigned to a given parent)
+
+Make/O/N=(numbPoints) xx0=gnoise(sigma) //essentially a "noise" wave, the length of the total number of daughter points, with stdev of sigma
+
+Make/O/N=(numbPoints) yy0=gnoise(sigma) //same as above
+
+//this whole next section makes the final daughter coordinates by first replicating the xx coordinates of each parent point n times, where n is the number of daughter points assigned to that parent.
+Make/O/N=(numbPoints) xx=0, yy=0, xxnoiseless=0, yynoiseless=0
+variable xxwaveindex = 0
+xxnoiseless[0,(sum(numbPointsDaughter,0,0))]=xxparent[0]
+yynoiseless[0,(sum(numbPointsDaughter,0,0))]=yyparent[0]
+xxwaveindex+=1
+variable startpoint
+variable endpoint
+
+do
+	startpoint=sum(numbpointsdaughter,0,(xxwaveindex-1))
+	endpoint = sum(numbpointsdaughter,0,xxwaveindex)
+	xxnoiseless[startpoint,endpoint] = xxparent[xxwaveindex]
+	yynoiseless[startpoint,endpoint] = yyparent[xxwaveindex]
+	xxwaveindex += 1
+while (xxwaveindex <= (numbPointsparent))	
+
+
+xx=xxnoiseless+xx0 //adding in noise in xx coordinates
+yy=yynoiseless+yy0 //adding in noise in yy coordinates
+
+
+concatenate/O {xx,yy}, simchannelmatrix //putting the xx and yy coordinates together in a matrix.
+
+
+variable x2min = (-xmax) //setting up bounds for sample point box.  
+variable x2max = (xmax)
+variable y2min = (-ymax)
+variable y2max = (ymax)
+variable x2delta=x2max-x2min
+variable y2delta=y2max-y2min
+variable area2total = x2Delta*y2Delta
+
+
+Make/O/N=(numb_samplepoints) xx_sample=enoise(.5*x2delta) //xx locations of pipette centers from a uniform distribution
+Make/O/N=(numb_samplepoints) yy_sample=enoise(.5*y2delta) //yy locations of pipette centers from a uniform distribution
+
+concatenate/O {xx_sample,yy_sample}, samplematrix //now the sample points are in a matrix.
+ 
+
+ Matrixop/o/free matAx=colRepeat(xx,numb_samplepoints)//matrix of channel x coordinates
+ Matrixop/o/free matAy=colRepeat(yy,numb_samplepoints)//matrix of channel y coordinates
+ Matrixop/o/free matBx=rowRepeat(xx_sample,numbpoints) //matrix of pipette center x coordinates
+ Matrixop/o/free matBy=rowRepeat(yy_sample,numbpoints)//marix of pipette center y coordinates
+
+ MatrixOP/o distances=sqrt((matAx-matBx)*(matAx-matBx)+(matAy-matBy)*(matAy-matBy)) //distance matrix between all channel points and all pipette points.
+  
+
+//Now making a matrix of normally distributed pipette sizes
+ Make/O/N=(numb_samplepoints) pipettesize=((0.8+gnoise(.147))) //average pipette radius is 0.8 um, with a standard deviation of .147 um
+ Matrixop/o pipettematrix=rowrepeat(pipettesize,numbpoints)
+
+//now counting channels that fall within the pipette radii.
+ MatrixOP/O clusterdistances=greater(pipettematrix,distances) //compares distance matrix to pipette matrix and assigns a binary value (0 for distance > pipette radius, 1 for distance < pipette radius)
+ MatrixOP/O/NPRM/S channelcount= sumcols(clusterdistances) //sums the columns of above matrix- i.e., # of distances that are within the cutoff of pipette radius
+ MatrixOP/O channelcount = redimension(channelcount,numb_samplepoints,1) //redimensions above matrix into a column for further analysis
+
+ //converting channel counts to currents
+ Make/O/R/N=(numb_samplepoints) simchannelampnoise= gnoise(2.22e-13)+9.76e-13 //this makes a normal distribution of single channel conductances based on N2A values- stdev of 2.45e-13 and mean 9.38e-13
+ MAke/O/R/N=(numb_samplepoints) simchannelamp = channelcount*simchannelampnoise //converts simulated channel counts to single channel conductances
+ 
+ duplicate/O $(datainput) realdata //placeholder wave for raw data.
+ Make/O/N=100/O simchannelamp_Hist,realN2Acount //making two empty histograms for data comparison
+ Histogram/B={-.49e-12,.976e-12,100} simchannelamp,simchannelamp_Hist //binning simulated channel amplitudes- bin width is mean single channel conductance and offset by half that value, so should be centered around 1 channel 
+ Histogram/B={-.49e-12,.976e-12,100} realdata, realN2Acount //binning real chanel amplitudes
+ duplicate/O simchannelamp_hist simchannelnorm //creating normalized wave for simulated channel counts
+ duplicate/O realN2Acount realdatanorm //creating normalized wave for real data
+ simchannelnorm=simchannelnorm/sum(simchannelamp_hist)  //calculating normalized wave
+ realdatanorm = realn2acount/sum(realn2acount) //calculating normalized wave
+ Make/O/N=100 histogramdiff //making error wave
+ histogramdiff = (simchannelnorm-realdatanorm)^2 //calculating square difference for each bin
+ variable sqdiff = sum(histogramdiff) //sum of squared differences
+
+ return sqdiff // IMPORTANT: this "returns" this value from this function- so if you call this function from another function for fitting purposes, this is the output. 
+
+   
+end
+
+
+
