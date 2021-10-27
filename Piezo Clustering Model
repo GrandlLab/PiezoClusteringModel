@@ -2,6 +2,8 @@
 // https://hpaulkeeler.com/simulating-a-thomas-cluster-point-process/
 // https://github.com/hpaulkeeler/posts/tree/master/ThomasClusterRectangle
 
+This was written and tested in Igor Pro 8.0 (Wavemetrics)
+
 
 #pragma TextEncoding = "UTF-8"
 #pragma rtGlobals=3		// Use modern global access method and strict wave access.
